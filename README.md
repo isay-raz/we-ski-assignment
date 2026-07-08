@@ -9,10 +9,20 @@ A REST API for searching ski-resort hotel availability. Built with Node.js + Typ
 
 ## Run
 
+### With Docker (app + Redis)
+
 ```bash
-docker compose up -d   # start Redis on localhost:6379
+docker compose up -d --build   # builds and runs the API + Redis
+```
+
+The API is available on http://localhost:3000. Stop it with `docker compose down`.
+
+### Locally (Redis in Docker, app from source)
+
+```bash
+docker compose up -d redis     # start Redis on localhost:6379
 npm install
-npm run dev            # http://localhost:3000
+npm run dev                    # http://localhost:3000
 ```
 
 Production build:
@@ -27,7 +37,7 @@ Configuration is optional — see [`.env.example`](.env.example) for tunables (p
 ## Test
 
 ```bash
-docker compose up -d   # Redis must be running
+docker compose up -d redis   # Redis must be running
 npm test
 ```
 
