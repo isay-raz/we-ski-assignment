@@ -1,6 +1,6 @@
 import { SearchQuery } from '../types';
 
-export function sliceKey(providerName: string, query: SearchQuery, size: number): string {
+export function slotKey(providerName: string, query: SearchQuery, size: number): string {
   return `${providerName}:${query.ski_site}:${query.from_date}:${query.to_date}:${size}`;
 }
 

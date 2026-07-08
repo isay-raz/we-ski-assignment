@@ -1,5 +1,5 @@
 import { Accommodation, HotelProvider, ResultStore, SearchQuery, SearchResult, SearchStatus } from '../types';
-import { ensureSlicesFetched, neededSlices } from './aggregator';
+import { ensureSlotsFetched, neededSlots } from './aggregator';
 import { decodeSearchId, encodeSearchId } from './searchId';
 
 export class SearchService {
@@ -19,14 +19,14 @@ export class SearchService {
     const query = decodeSearchId(id);
     this.ensureStarted(query);
 
-    const slices = neededSlices(query, this.providers, this.maxGroupSize);
-    const records = await Promise.all(slices.map((slice) => this.store.getSlice(slice.sliceId)));
+    const slots = neededSlots(query, this.providers, this.maxGroupSize);
+    const records = await Promise.all(slots.map((slot) => this.store.getSlot(slot.key)));
 
     const accommodations = cheapestPerHotel(records.flatMap((record) => record?.accommodations ?? []));
     const settled = records.filter(
       (record) => record?.status === 'done' || record?.status === 'failed',
     ).length;
-    const total = slices.length;
+    const total = slots.length;
 
     let status: SearchStatus;
     if (settled < total) {
@@ -41,7 +41,7 @@ export class SearchService {
   }
 
   private ensureStarted(query: SearchQuery): void {
-    ensureSlicesFetched(query, this.providers, this.store, this.maxGroupSize);
+    ensureSlotsFetched(query, this.providers, this.store, this.maxGroupSize);
   }
 }
 

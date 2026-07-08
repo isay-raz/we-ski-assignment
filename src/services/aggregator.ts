@@ -1,6 +1,6 @@
-import { HotelProvider, ResultStore, SearchQuery } from '../types';
+import { AvailabilitySlot, HotelProvider, ResultStore, SearchQuery } from '../types';
 import { logger } from '../utils/logger';
-import { sliceKey } from './searchId';
+import { slotKey } from './searchId';
 
 export function groupSizesFor(requested: number, maxGroupSize: number): number[] {
   const start = Math.max(1, Math.floor(requested));
@@ -9,69 +9,60 @@ export function groupSizesFor(requested: number, maxGroupSize: number): number[]
   return sizes;
 }
 
-export interface Slice {
-  provider: HotelProvider;
-  size: number;
-  sliceId: string;
-}
-
-export function neededSlices(
+export function neededSlots(
   query: SearchQuery,
   providers: HotelProvider[],
   maxGroupSize: number,
-): Slice[] {
-  const slices: Slice[] = [];
+): AvailabilitySlot[] {
+  const slots: AvailabilitySlot[] = [];
   for (const provider of providers) {
     for (const size of groupSizesFor(query.group_size, maxGroupSize)) {
-      slices.push({ provider, size, sliceId: sliceKey(provider.name, query, size) });
+      slots.push({ provider, size, key: slotKey(provider.name, query, size) });
     }
   }
-  return slices;
+  return slots;
 }
 
-export function ensureSlicesFetched(
+export function ensureSlotsFetched(
   query: SearchQuery,
   providers: HotelProvider[],
   store: ResultStore,
   maxGroupSize: number,
 ): void {
-  for (const slice of neededSlices(query, providers, maxGroupSize)) {
-    void fetchSlice(slice, query, store);
+  for (const slot of neededSlots(query, providers, maxGroupSize)) {
+    void fetchSlot(slot, query, store);
   }
 }
 
-async function fetchSlice(slice: Slice, query: SearchQuery, store: ResultStore): Promise<void> {
+async function fetchSlot(slot: AvailabilitySlot, query: SearchQuery, store: ResultStore): Promise<void> {
   try {
-    const isOwner = await store.claimSlice(slice.sliceId);
+    const isOwner = await store.claimSlot(slot.key);
     if (!isOwner) return;
 
     try {
-      const accommodations = await slice.provider.search(query, slice.size);
-      await store.addSliceResults(slice.sliceId, accommodations);
-      await store.markSliceDone(slice.sliceId);
-      logger.info(
-        { sliceId: slice.sliceId, results: accommodations.length },
-        'slice fetched',
-      );
+      const accommodations = await slot.provider.search(query, slot.size);
+      await store.addSlotResults(slot.key, accommodations);
+      await store.markSlotDone(slot.key);
+      logger.info({ slot: slot.key, results: accommodations.length }, 'slot fetched');
     } catch (error) {
       logger.warn(
         {
-          sliceId: slice.sliceId,
-          provider: slice.provider.name,
-          size: slice.size,
+          slot: slot.key,
+          provider: slot.provider.name,
+          size: slot.size,
           error: error instanceof Error ? error.message : String(error),
         },
-        'slice fetch failed',
+        'slot fetch failed',
       );
-      await store.markSliceFailed(slice.sliceId);
+      await store.markSlotFailed(slot.key);
     }
   } catch (error) {
     logger.error(
       {
-        sliceId: slice.sliceId,
+        slot: slot.key,
         error: error instanceof Error ? error.message : String(error),
       },
-      'slice fetch crashed',
+      'slot fetch crashed',
     );
   }
 }

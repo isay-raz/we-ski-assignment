@@ -46,19 +46,25 @@ export interface HotelProvider {
   search(query: SearchQuery, groupSize: number): Promise<Accommodation[]>;
 }
 
-export type SliceStatus = 'pending' | 'done' | 'failed';
+export interface AvailabilitySlot {
+  provider: HotelProvider;
+  size: number;
+  key: string;
+}
 
-export interface SliceRecord {
-  status: SliceStatus;
+export type SlotStatus = 'pending' | 'done' | 'failed';
+
+export interface SlotResult {
+  status: SlotStatus;
   accommodations: Accommodation[];
 }
 
 export interface ResultStore {
-  claimSlice(sliceId: string): Promise<boolean>;
-  addSliceResults(sliceId: string, accommodations: Accommodation[]): Promise<void>;
-  markSliceDone(sliceId: string): Promise<void>;
-  markSliceFailed(sliceId: string): Promise<void>;
-  getSlice(sliceId: string): Promise<SliceRecord | null>;
+  claimSlot(slotKey: string): Promise<boolean>;
+  addSlotResults(slotKey: string, accommodations: Accommodation[]): Promise<void>;
+  markSlotDone(slotKey: string): Promise<void>;
+  markSlotFailed(slotKey: string): Promise<void>;
+  getSlot(slotKey: string): Promise<SlotResult | null>;
   close(): Promise<void>;
 }
 

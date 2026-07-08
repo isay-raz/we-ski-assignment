@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { Accommodation, ResultStore, SliceRecord, SliceStatus } from '../types';
+import { Accommodation, ResultStore, SlotResult, SlotStatus } from '../types';
 
 export class RedisStore implements ResultStore {
   private readonly redis: Redis;
@@ -8,42 +8,42 @@ export class RedisStore implements ResultStore {
     this.redis = new Redis(redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
   }
 
-  private statusKey(sliceId: string): string {
-    return `slice:${sliceId}:status`;
+  private statusKey(slotKey: string): string {
+    return `slot:${slotKey}:status`;
   }
 
-  private itemsKey(sliceId: string): string {
-    return `slice:${sliceId}:items`;
+  private itemsKey(slotKey: string): string {
+    return `slot:${slotKey}:items`;
   }
 
-  async claimSlice(sliceId: string): Promise<boolean> {
-    const result = await this.redis.set(this.statusKey(sliceId), 'pending', 'EX', this.ttlSeconds, 'NX');
+  async claimSlot(slotKey: string): Promise<boolean> {
+    const result = await this.redis.set(this.statusKey(slotKey), 'pending', 'EX', this.ttlSeconds, 'NX');
     return result === 'OK';
   }
 
-  async addSliceResults(sliceId: string, accommodations: Accommodation[]): Promise<void> {
+  async addSlotResults(slotKey: string, accommodations: Accommodation[]): Promise<void> {
     if (accommodations.length === 0) return;
     const encoded = accommodations.map((a) => JSON.stringify(a));
-    await this.redis.rpush(this.itemsKey(sliceId), ...encoded);
-    await this.redis.expire(this.itemsKey(sliceId), this.ttlSeconds);
+    await this.redis.rpush(this.itemsKey(slotKey), ...encoded);
+    await this.redis.expire(this.itemsKey(slotKey), this.ttlSeconds);
   }
 
-  async markSliceDone(sliceId: string): Promise<void> {
-    await this.redis.set(this.statusKey(sliceId), 'done', 'EX', this.ttlSeconds);
+  async markSlotDone(slotKey: string): Promise<void> {
+    await this.redis.set(this.statusKey(slotKey), 'done', 'EX', this.ttlSeconds);
   }
 
-  async markSliceFailed(sliceId: string): Promise<void> {
-    await this.redis.set(this.statusKey(sliceId), 'failed', 'EX', this.ttlSeconds);
+  async markSlotFailed(slotKey: string): Promise<void> {
+    await this.redis.set(this.statusKey(slotKey), 'failed', 'EX', this.ttlSeconds);
   }
 
-  async getSlice(sliceId: string): Promise<SliceRecord | null> {
-    const status = await this.redis.get(this.statusKey(sliceId));
+  async getSlot(slotKey: string): Promise<SlotResult | null> {
+    const status = await this.redis.get(this.statusKey(slotKey));
     if (status === null) return null;
 
-    const items = await this.redis.lrange(this.itemsKey(sliceId), 0, -1);
+    const items = await this.redis.lrange(this.itemsKey(slotKey), 0, -1);
     const accommodations = items.map((raw) => JSON.parse(raw) as Accommodation);
 
-    return { status: status as SliceStatus, accommodations };
+    return { status: status as SlotStatus, accommodations };
   }
 
   async close(): Promise<void> {

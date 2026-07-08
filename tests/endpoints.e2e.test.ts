@@ -32,7 +32,7 @@ class CountingProvider implements HotelProvider {
 
 async function cleanRedisStore(): Promise<void> {
   const redis = new Redis(config.store.redisUrl);
-  const keys = await redis.keys('slice:*');
+  const keys = await redis.keys('slot:*');
   if (keys.length > 0) {
     await redis.del(...keys);
   }
@@ -92,7 +92,7 @@ describe('search endpoints', () => {
     await store.close();
   }, 60000);
 
-  it('serves cached slices immediately — group_size 3 and 4 reuse the group_size 2 fetch', async () => {
+  it('serves cached slots immediately — group_size 3 and 4 reuse the group_size 2 fetch', async () => {
     const provider = new CountingProvider(new DummyProvider());
     const store = new RedisStore(config.store.redisUrl, config.store.ttlSeconds);
     const service = new SearchService(store, [provider], config.maxGroupSize);
