@@ -1,5 +1,6 @@
 import { HotelProvider, ResultStore, SearchQuery } from '../types';
 import { logger } from '../utils/logger';
+import { sliceKey } from './searchId';
 
 export function groupSizesFor(requested: number, maxGroupSize: number): number[] {
   const start = Math.max(1, Math.floor(requested));
@@ -8,58 +9,69 @@ export function groupSizesFor(requested: number, maxGroupSize: number): number[]
   return sizes;
 }
 
-export async function runAggregation(
-  id: string,
+export interface Slice {
+  provider: HotelProvider;
+  size: number;
+  sliceId: string;
+}
+
+export function neededSlices(
+  query: SearchQuery,
+  providers: HotelProvider[],
+  maxGroupSize: number,
+): Slice[] {
+  const slices: Slice[] = [];
+  for (const provider of providers) {
+    for (const size of groupSizesFor(query.group_size, maxGroupSize)) {
+      slices.push({ provider, size, sliceId: sliceKey(provider.name, query, size) });
+    }
+  }
+  return slices;
+}
+
+export function ensureSlicesFetched(
   query: SearchQuery,
   providers: HotelProvider[],
   store: ResultStore,
   maxGroupSize: number,
-): Promise<void> {
-  const sizes = groupSizesFor(query.group_size, maxGroupSize);
-
-  const tasks: Promise<unknown>[] = [];
-  for (const provider of providers) {
-    for (const size of sizes) {
-      tasks.push(runTask(id, query, provider, size, store));
-    }
+): void {
+  for (const slice of neededSlices(query, providers, maxGroupSize)) {
+    void fetchSlice(slice, query, store);
   }
-
-  const outcomes = await Promise.allSettled(tasks);
-  const allFailed = outcomes.length > 0 && outcomes.every((o) => o.status === 'rejected');
-
-  await store.finalize(id, allFailed ? 'failed' : 'completed');
-  logger.info(
-    {
-      searchId: id,
-      tasks: outcomes.length,
-      failed: outcomes.filter((o) => o.status === 'rejected').length,
-      status: allFailed ? 'failed' : 'completed',
-    },
-    'search aggregation finished',
-  );
 }
 
-async function runTask(
-  id: string,
-  query: SearchQuery,
-  provider: HotelProvider,
-  size: number,
-  store: ResultStore,
-): Promise<void> {
+async function fetchSlice(slice: Slice, query: SearchQuery, store: ResultStore): Promise<void> {
   try {
-    const accommodations = await provider.search(query, size);
-    await store.recordTaskResult(id, accommodations);
+    const isOwner = await store.claimSlice(slice.sliceId);
+    if (!isOwner) return;
+
+    try {
+      const accommodations = await slice.provider.search(query, slice.size);
+      await store.addSliceResults(slice.sliceId, accommodations);
+      await store.markSliceDone(slice.sliceId);
+      logger.info(
+        { sliceId: slice.sliceId, results: accommodations.length },
+        'slice fetched',
+      );
+    } catch (error) {
+      logger.warn(
+        {
+          sliceId: slice.sliceId,
+          provider: slice.provider.name,
+          size: slice.size,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'slice fetch failed',
+      );
+      await store.markSliceFailed(slice.sliceId);
+    }
   } catch (error) {
-    await store.recordTaskResult(id, []);
-    logger.warn(
+    logger.error(
       {
-        searchId: id,
-        provider: provider.name,
-        groupSize: size,
+        sliceId: slice.sliceId,
         error: error instanceof Error ? error.message : String(error),
       },
-      'provider fan-out task failed',
+      'slice fetch crashed',
     );
-    throw error;
   }
 }

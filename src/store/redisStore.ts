@@ -1,5 +1,5 @@
 import Redis from 'ioredis';
-import { Accommodation, ResultStore, SearchStatus, StoredSearch } from '../types';
+import { Accommodation, ResultStore, SliceRecord, SliceStatus } from '../types';
 
 export class RedisStore implements ResultStore {
   private readonly redis: Redis;
@@ -8,51 +8,42 @@ export class RedisStore implements ResultStore {
     this.redis = new Redis(redisUrl, { lazyConnect: false, maxRetriesPerRequest: 3 });
   }
 
-  private metaKey(id: string): string {
-    return `search:${id}:meta`;
+  private statusKey(sliceId: string): string {
+    return `slice:${sliceId}:status`;
   }
 
-  private itemsKey(id: string): string {
-    return `search:${id}:items`;
+  private itemsKey(sliceId: string): string {
+    return `slice:${sliceId}:items`;
   }
 
-  async claim(id: string, totalTasks: number): Promise<boolean> {
-    const won = await this.redis.hsetnx(this.metaKey(id), 'status', 'in_progress');
-    if (won !== 1) return false;
-
-    await this.redis.hset(this.metaKey(id), 'completedTasks', 0, 'totalTasks', totalTasks);
-    await this.redis.expire(this.metaKey(id), this.ttlSeconds);
-    return true;
+  async claimSlice(sliceId: string): Promise<boolean> {
+    const result = await this.redis.set(this.statusKey(sliceId), 'pending', 'EX', this.ttlSeconds, 'NX');
+    return result === 'OK';
   }
 
-  async recordTaskResult(id: string, accommodations: Accommodation[]): Promise<void> {
-    if (accommodations.length > 0) {
-      const encoded = accommodations.map((a) => JSON.stringify(a));
-      await this.redis.rpush(this.itemsKey(id), ...encoded);
-      await this.redis.expire(this.itemsKey(id), this.ttlSeconds);
-    }
-    await this.redis.hincrby(this.metaKey(id), 'completedTasks', 1);
-    await this.redis.expire(this.metaKey(id), this.ttlSeconds);
+  async addSliceResults(sliceId: string, accommodations: Accommodation[]): Promise<void> {
+    if (accommodations.length === 0) return;
+    const encoded = accommodations.map((a) => JSON.stringify(a));
+    await this.redis.rpush(this.itemsKey(sliceId), ...encoded);
+    await this.redis.expire(this.itemsKey(sliceId), this.ttlSeconds);
   }
 
-  async finalize(id: string, status: SearchStatus): Promise<void> {
-    await this.redis.hset(this.metaKey(id), 'status', status);
-    await this.redis.expire(this.metaKey(id), this.ttlSeconds);
+  async markSliceDone(sliceId: string): Promise<void> {
+    await this.redis.set(this.statusKey(sliceId), 'done', 'EX', this.ttlSeconds);
   }
 
-  async get(id: string): Promise<StoredSearch | null> {
-    const meta = await this.redis.hgetall(this.metaKey(id));
-    if (!meta || Object.keys(meta).length === 0) return null;
+  async markSliceFailed(sliceId: string): Promise<void> {
+    await this.redis.set(this.statusKey(sliceId), 'failed', 'EX', this.ttlSeconds);
+  }
 
-    const items = await this.redis.lrange(this.itemsKey(id), 0, -1);
+  async getSlice(sliceId: string): Promise<SliceRecord | null> {
+    const status = await this.redis.get(this.statusKey(sliceId));
+    if (status === null) return null;
+
+    const items = await this.redis.lrange(this.itemsKey(sliceId), 0, -1);
     const accommodations = items.map((raw) => JSON.parse(raw) as Accommodation);
 
-    return {
-      status: (meta.status as SearchStatus) ?? 'in_progress',
-      accommodations,
-      completedTasks: Number(meta.completedTasks ?? 0),
-      totalTasks: Number(meta.totalTasks ?? 0),
-    };
+    return { status: status as SliceStatus, accommodations };
   }
 
   async close(): Promise<void> {

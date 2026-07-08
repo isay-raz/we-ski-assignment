@@ -46,18 +46,19 @@ export interface HotelProvider {
   search(query: SearchQuery, groupSize: number): Promise<Accommodation[]>;
 }
 
-export interface StoredSearch {
-  status: SearchStatus;
+export type SliceStatus = 'pending' | 'done' | 'failed';
+
+export interface SliceRecord {
+  status: SliceStatus;
   accommodations: Accommodation[];
-  completedTasks: number;
-  totalTasks: number;
 }
 
 export interface ResultStore {
-  claim(id: string, totalTasks: number): Promise<boolean>;
-  recordTaskResult(id: string, accommodations: Accommodation[]): Promise<void>;
-  finalize(id: string, status: SearchStatus): Promise<void>;
-  get(id: string): Promise<StoredSearch | null>;
+  claimSlice(sliceId: string): Promise<boolean>;
+  addSliceResults(sliceId: string, accommodations: Accommodation[]): Promise<void>;
+  markSliceDone(sliceId: string): Promise<void>;
+  markSliceFailed(sliceId: string): Promise<void>;
+  getSlice(sliceId: string): Promise<SliceRecord | null>;
   close(): Promise<void>;
 }
 

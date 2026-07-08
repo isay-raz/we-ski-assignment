@@ -1,5 +1,9 @@
 import { SearchQuery } from '../types';
 
+export function sliceKey(providerName: string, query: SearchQuery, size: number): string {
+  return `${providerName}:${query.ski_site}:${query.from_date}:${query.to_date}:${size}`;
+}
+
 export function encodeSearchId(query: SearchQuery): string {
   const canonical = JSON.stringify({
     ski_site: query.ski_site,

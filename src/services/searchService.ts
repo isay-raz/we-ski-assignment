@@ -1,7 +1,6 @@
-import { Accommodation, HotelProvider, ResultStore, SearchQuery, SearchResult } from '../types';
-import { logger } from '../utils/logger';
-import { runAggregation, groupSizesFor } from './aggregator';
-import { encodeSearchId, decodeSearchId } from './searchId';
+import { Accommodation, HotelProvider, ResultStore, SearchQuery, SearchResult, SearchStatus } from '../types';
+import { ensureSlicesFetched, neededSlices } from './aggregator';
+import { decodeSearchId, encodeSearchId } from './searchId';
 
 export class SearchService {
   constructor(
@@ -12,52 +11,37 @@ export class SearchService {
 
   async createSearch(query: SearchQuery): Promise<string> {
     const id = encodeSearchId(query);
-    await this.ensureStarted(id, query);
+    this.ensureStarted(query);
     return id;
   }
 
   async getSearch(id: string): Promise<SearchResult> {
     const query = decodeSearchId(id);
-    await this.ensureStarted(id, query);
+    this.ensureStarted(query);
 
-    const snapshot = await this.store.get(id);
-    if (!snapshot) {
-      return { status: 'in_progress', accommodations: [], completedTasks: 0, totalTasks: 0 };
+    const slices = neededSlices(query, this.providers, this.maxGroupSize);
+    const records = await Promise.all(slices.map((slice) => this.store.getSlice(slice.sliceId)));
+
+    const accommodations = cheapestPerHotel(records.flatMap((record) => record?.accommodations ?? []));
+    const settled = records.filter(
+      (record) => record?.status === 'done' || record?.status === 'failed',
+    ).length;
+    const total = slices.length;
+
+    let status: SearchStatus;
+    if (settled < total) {
+      status = 'in_progress';
+    } else if (total > 0 && records.every((record) => record?.status === 'failed')) {
+      status = 'failed';
+    } else {
+      status = 'completed';
     }
 
-    return {
-      status: snapshot.status,
-      accommodations: cheapestPerHotel(snapshot.accommodations),
-      completedTasks: snapshot.completedTasks,
-      totalTasks: snapshot.totalTasks,
-    };
+    return { status, accommodations, completedTasks: settled, totalTasks: total };
   }
 
-  private async ensureStarted(id: string, query: SearchQuery): Promise<void> {
-    const totalTasks = this.providers.length * groupSizesFor(query.group_size, this.maxGroupSize).length;
-    const isOwner = await this.store.claim(id, totalTasks);
-    if (!isOwner) return;
-
-    void this.runSearch(id, query);
-  }
-
-  private async runSearch(id: string, query: SearchQuery): Promise<void> {
-    try {
-      await runAggregation(id, query, this.providers, this.store, this.maxGroupSize);
-    } catch (error) {
-      logger.error(
-        {
-          searchId: id,
-          error: error instanceof Error ? error.message : String(error),
-        },
-        'aggregation crashed',
-      );
-      try {
-        await this.store.finalize(id, 'failed');
-      } catch {
-        return;
-      }
-    }
+  private ensureStarted(query: SearchQuery): void {
+    ensureSlicesFetched(query, this.providers, this.store, this.maxGroupSize);
   }
 }
 
